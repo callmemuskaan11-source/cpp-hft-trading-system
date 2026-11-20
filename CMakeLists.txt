@@ -18,3 +18,4 @@ endif()
 
 enable_testing()
 add_subdirectory(common)
+add_subdirectory(market-data-feed-handler)
