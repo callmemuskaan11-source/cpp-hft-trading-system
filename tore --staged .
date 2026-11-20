@@ -1,0 +1,42 @@
+ CMakeLists.txt                             |   1 [32m+[m
+ build-debug/CTestTestfile.cmake            |   8 [32m+[m
+ build-debug/Makefile                       | 221 [32m++++++++[m
+ .../Testing/Temporary/CTestCostData.txt    |   5 [32m+[m
+ build-debug/cmake_install.cmake            |  64 [32m+++[m
+ build-debug/common/CTestTestfile.cmake     |   8 [32m+[m
+ build-debug/common/Makefile                | 193 [32m+++++++[m
+ build-debug/common/cmake_install.cmake     |  44 [32m++[m
+ build-debug/common/test_common             | Bin [31m0[m -> [32m84136[m bytes
+ .../CTestTestfile.cmake                    |  12 [32m+[m
+ .../market-data-feed-handler/Makefile      | 400 [32m+++++++++++++++[m
+ .../cmake_install.cmake                    |  44 [32m++[m
+ .../test_event_serialization               | Bin [31m0[m -> [32m900472[m bytes
+ .../test_limit_order_book                  | Bin [31m0[m -> [32m830192[m bytes
+ .../test_synthetic_generator               | Bin [31m0[m -> [32m340656[m bytes
+ build-release/CTestTestfile.cmake          |   8 [32m+[m
+ build-release/Makefile                     | 221 [32m++++++++[m
+ .../Testing/Temporary/CTestCostData.txt    |   5 [32m+[m
+ build-release/cmake_install.cmake          |  64 [32m+++[m
+ build-release/common/CTestTestfile.cmake   |   8 [32m+[m
+ build-release/common/Makefile              | 193 [32m+++++++[m
+ build-release/common/cmake_install.cmake   |  44 [32m++[m
+ build-release/common/test_common           | Bin [31m0[m -> [32m20872[m bytes
+ .../CTestTestfile.cmake                    |  12 [32m+[m
+ .../market-data-feed-handler/Makefile      | 400 [32m+++++++++++++++[m
+ .../cmake_install.cmake                    |  44 [32m++[m
+ .../test_event_serialization               | Bin [31m0[m -> [32m77912[m bytes
+ .../test_limit_order_book                  | Bin [31m0[m -> [32m69904[m bytes
+ .../test_synthetic_generator               | Bin [31m0[m -> [32m32416[m bytes
+ market-data-feed-handler/CMakeLists.txt    |  15 [32m+[m
+ .../hft/market_data/event_writer.hpp       |  17 [32m+[m
+ .../hft/market_data/limit_order_book.hpp   |  85 [32m+++[m
+ .../hft/market_data/replay_reader.hpp      |  27 [32m+[m
+ .../market_data/synthetic_generator.hpp    |  36 [32m++[m
+ .../src/event_writer.cpp                   |  30 [32m++[m
+ .../src/limit_order_book.cpp               | 133 [32m+++++[m
+ .../src/replay_reader.cpp                  | 102 [32m++++[m
+ .../src/synthetic_generator.cpp            |  80 [32m+++[m
+ .../tests/test_event_serialization.cpp     | 167 [32m++++++[m
+ .../tests/test_limit_order_book.cpp        | 241 [32m+++++++++[m
+ .../tests/test_synthetic_generator.cpp     | 121 [32m+++++[m
+ 41 files changed, 3053 insertions(+)

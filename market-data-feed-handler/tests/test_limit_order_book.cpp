@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <cstdlib>
 #include <limits>
@@ -109,15 +110,9 @@ void test_rejected_events() {
     CHECK_EQ(book.apply(add(kInvalidOrderId, Side::Sell, 101)), BookResult::InvalidOrderId);
     CHECK_EQ(book.apply(add(3, Side::Buy, 100)), BookResult::QuantityOverflow);
 
-    for (auto type : {EventType::Modify, EventType::Cancel, EventType::Trade,
-                      static_cast<EventType>(255)}) {
-        auto event = add(1, Side::Buy, 100);
-        event.event_type = type;
-        CHECK_EQ(book.apply(event), BookResult::UnsupportedEvent);
-        event.order_id = 3;
-        event.side = Side::Sell;
-        CHECK_EQ(book.apply(event), BookResult::UnsupportedEvent);
-    }
+    auto invalid = add(3, Side::Buy, 100);
+    invalid.event_type = static_cast<EventType>(255);
+    CHECK_EQ(book.apply(invalid), BookResult::UnsupportedEvent);
 
     CHECK_EQ(book.top_bids(10), (std::vector<BookLevel>{{100, max_quantity}}));
     CHECK(book.top_asks(10).empty());
@@ -228,6 +223,224 @@ void test_generated_adds_against_reference() {
     }
 }
 
+MarketEvent update(EventType type, OrderId id, Side side, Price price, Quantity quantity) {
+    return MarketEvent{0, 0, id, price, quantity, type, side};
+}
+
+void check_queue(const LimitOrderBook& book, Side side, Price price,
+                 const std::vector<OrderId>& expected) {
+    const auto* orders = book.orders_at(side, price);
+    std::vector<OrderId> actual;
+    if (orders != nullptr) {
+        for (const auto& order : *orders) {
+            actual.push_back(order.order_id);
+            CHECK_EQ(book.find_order(order.order_id), &order);
+        }
+    }
+    CHECK_EQ(actual, expected);
+    CHECK_EQ(orders == nullptr, expected.empty());
+    CHECK(book.is_consistent());
+}
+
+void test_modify_priority() {
+    LimitOrderBook book;
+    CHECK(book.is_consistent());
+    CHECK_EQ(book.apply(add(1, Side::Buy, 100, 5)), BookResult::Added);
+    CHECK_EQ(book.apply(add(2, Side::Buy, 100, 6)), BookResult::Added);
+    CHECK_EQ(book.apply(add(3, Side::Buy, 105, 8)), BookResult::Added);
+    CHECK_EQ(book.apply(add(4, Side::Sell, 110, 8)), BookResult::Added);
+    const auto* first = book.find_order(1);
+
+    CHECK_EQ(book.apply(update(EventType::Modify, 1, Side::Buy, 100, 5)), BookResult::Modified);
+    check_queue(book, Side::Buy, 100, {1, 2});
+    CHECK_EQ(book.apply(update(EventType::Modify, 1, Side::Buy, 100, 2)), BookResult::Modified);
+    check_queue(book, Side::Buy, 100, {1, 2});
+    CHECK_EQ(book.top_bids(2), (std::vector<BookLevel>{{105, 8}, {100, 8}}));
+
+    CHECK_EQ(book.apply(update(EventType::Modify, 1, Side::Buy, 100, 4)), BookResult::Modified);
+    check_queue(book, Side::Buy, 100, {2, 1});
+    CHECK_EQ(book.top_bids(2), (std::vector<BookLevel>{{105, 8}, {100, 10}}));
+
+    CHECK_EQ(book.apply(update(EventType::Modify, 1, Side::Buy, 105, 3)), BookResult::Modified);
+    check_queue(book, Side::Buy, 100, {2});
+    check_queue(book, Side::Buy, 105, {3, 1});
+    CHECK_EQ(book.find_order(1), first);
+    CHECK_EQ(book.top_bids(2), (std::vector<BookLevel>{{105, 11}, {100, 6}}));
+
+    CHECK_EQ(book.apply(update(EventType::Modify, 2, Side::Buy, 108, 7)), BookResult::Modified);
+    check_queue(book, Side::Buy, 100, {});
+    check_queue(book, Side::Buy, 108, {2});
+    CHECK_EQ(book.spread(), Price{2});
+    CHECK_EQ(book.top_bids(2), (std::vector<BookLevel>{{108, 7}, {105, 11}}));
+}
+
+void test_cancel_and_trade() {
+    LimitOrderBook book;
+    CHECK_EQ(book.apply(add(1, Side::Buy, 100, 7)), BookResult::Added);
+    CHECK_EQ(book.apply(add(2, Side::Buy, 100, 5)), BookResult::Added);
+    CHECK_EQ(book.apply(add(3, Side::Buy, 98, 3)), BookResult::Added);
+    CHECK_EQ(book.apply(add(4, Side::Sell, 105, 4)), BookResult::Added);
+    CHECK_EQ(book.apply(add(5, Side::Sell, 106, 2)), BookResult::Added);
+    CHECK_EQ(book.spread(), Price{5});
+
+    CHECK_EQ(book.apply(update(EventType::Trade, 1, Side::Buy, 99, 3)), BookResult::Traded);
+    check_queue(book, Side::Buy, 100, {1, 2});
+    CHECK_EQ(book.top_bids(1), (std::vector<BookLevel>{{100, 9}}));
+    CHECK_EQ(book.apply(update(EventType::Trade, 4, Side::Sell, 107, 4)), BookResult::Traded);
+    check_queue(book, Side::Sell, 105, {});
+    CHECK(book.find_order(4) == nullptr);
+    CHECK_EQ(book.best_ask(), Price{106});
+    CHECK_EQ(book.spread(), Price{6});
+    CHECK_EQ(book.apply(update(EventType::Cancel, 2, Side::Buy, kInvalidPrice, 0)),
+             BookResult::Cancelled);
+    check_queue(book, Side::Buy, 100, {1});
+    CHECK(book.find_order(2) == nullptr);
+    CHECK_EQ(book.top_bids(1), (std::vector<BookLevel>{{100, 4}}));
+    CHECK_EQ(book.apply(update(EventType::Cancel, 2, Side::Buy, 700, 0)), BookResult::UnknownOrderId);
+    CHECK_EQ(book.apply(update(EventType::Trade, 1, Side::Buy, 100, 4)), BookResult::Traded);
+    check_queue(book, Side::Buy, 100, {});
+    CHECK_EQ(book.best_bid(), Price{98});
+    CHECK_EQ(book.spread(), Price{8});
+    CHECK_EQ(book.top_asks(10), (std::vector<BookLevel>{{106, 2}}));
+}
+
+void test_rejected_updates() {
+    LimitOrderBook book;
+    constexpr auto max = std::numeric_limits<Quantity>::max();
+    CHECK_EQ(book.apply(add(1, Side::Buy, 100, 3)), BookResult::Added);
+    CHECK_EQ(book.apply(add(2, Side::Buy, 100, max - 3)), BookResult::Added);
+    CHECK_EQ(book.apply(add(3, Side::Buy, 99, 2)), BookResult::Added);
+    CHECK_EQ(book.apply(add(4, Side::Sell, 105, 2)), BookResult::Added);
+    const auto bids = book.top_bids(10);
+    const auto asks = book.top_asks(10);
+
+    const auto reject = [&](EventType type, OrderId id, Side side, Price price,
+                            Quantity quantity, BookResult expected) {
+        CHECK_EQ(book.apply(update(type, id, side, price, quantity)), expected);
+        CHECK_EQ(book.top_bids(10), bids);
+        CHECK_EQ(book.top_asks(10), asks);
+        check_queue(book, Side::Buy, 100, {1, 2});
+        check_queue(book, Side::Buy, 99, {3});
+        check_queue(book, Side::Sell, 105, {4});
+    };
+    using enum EventType;
+    using enum BookResult;
+    reject(Modify, 9, Side::Buy, 100, 1, UnknownOrderId);
+    reject(Cancel, 9, Side::Buy, 100, 0, UnknownOrderId);
+    reject(Trade, 9, Side::Buy, 100, 1, UnknownOrderId);
+    reject(Modify, 1, Side::Sell, 100, 1, SideMismatch);
+    reject(Cancel, 1, Side::Sell, 100, 0, SideMismatch);
+    reject(Trade, 1, Side::Sell, 100, 1, SideMismatch);
+    reject(Modify, 1, Side::Buy, 100, 0, InvalidQuantity);
+    reject(Modify, 1, Side::Buy, kInvalidPrice, 1, InvalidPrice);
+    reject(Modify, 1, Side::Buy, 100, 4, QuantityOverflow);
+    reject(Modify, 3, Side::Buy, 100, 1, QuantityOverflow);
+    reject(Cancel, 1, Side::Buy, 100, 1, InvalidQuantity);
+    reject(Trade, 1, Side::Buy, 100, 0, InvalidQuantity);
+    reject(Trade, 1, Side::Buy, 100, 4, InvalidQuantity);
+    reject(Trade, 1, Side::Buy, 101, 1, InvalidPrice);
+    reject(Trade, 4, Side::Sell, 104, 1, InvalidPrice);
+    reject(Trade, 4, Side::Sell, kInvalidPrice, 1, InvalidPrice);
+}
+
+void test_mixed_replay_against_reference() {
+    SyntheticGenerator generator({73, 2000, 17, 50});
+    LimitOrderBook book;
+    // Global FIFO in a flat vector, filtered by side and price for comparisons.
+    std::vector<MarketEvent> resting;
+    std::array<std::size_t, 4> counts{};
+    for (int i = 0; i < 100'000; ++i) {
+        const auto event = generator.next();
+        const auto found = std::find_if(resting.begin(), resting.end(), [&](const auto& order) {
+            return order.order_id == event.order_id;
+        });
+        ++counts[static_cast<std::size_t>(event.event_type)];
+        if (event.event_type == EventType::Add) {
+            CHECK(found == resting.end());
+            resting.push_back(event);
+            CHECK_EQ(book.apply(event), BookResult::Added);
+        } else {
+            CHECK(found != resting.end());
+            if (found == resting.end()) {
+                return;
+            }
+            switch (event.event_type) {
+                case EventType::Modify:
+                    if (event.price != found->price || event.quantity > found->quantity) {
+                        resting.erase(found);
+                        resting.push_back(event);
+                    } else {
+                        found->quantity = event.quantity;
+                    }
+                    CHECK_EQ(book.apply(event), BookResult::Modified);
+                    break;
+                case EventType::Cancel:
+                    resting.erase(found);
+                    CHECK_EQ(book.apply(event), BookResult::Cancelled);
+                    CHECK(book.find_order(event.order_id) == nullptr);
+                    break;
+                case EventType::Trade:
+                    if (found->quantity == event.quantity) {
+                        resting.erase(found);
+                    } else {
+                        found->quantity -= event.quantity;
+                    }
+                    CHECK_EQ(book.apply(event), BookResult::Traded);
+                    break;
+                case EventType::Add:
+                    break;
+            }
+        }
+
+        CHECK(book.is_consistent());
+        for (const auto side : {Side::Buy, Side::Sell}) {
+            std::vector<BookLevel> expected;
+            for (const auto& order : resting) {
+                if (order.side != side) {
+                    continue;
+                }
+                const auto level = std::find_if(expected.begin(), expected.end(), [&](const auto& item) {
+                    return item.price == order.price;
+                });
+                if (level == expected.end()) {
+                    expected.push_back({order.price, order.quantity});
+                } else {
+                    level->aggregate_quantity += order.quantity;
+                }
+            }
+            std::sort(expected.begin(), expected.end(), [side](const auto& left, const auto& right) {
+                return side == Side::Buy ? left.price > right.price : left.price < right.price;
+            });
+            const auto actual = side == Side::Buy ? book.top_bids(100) : book.top_asks(100);
+            CHECK_EQ(actual, expected);
+            for (const auto& level : expected) {
+                const auto* queue = book.orders_at(side, level.price);
+                CHECK(queue != nullptr);
+                if (queue == nullptr) {
+                    continue;
+                }
+                auto position = queue->begin();
+                for (const auto& order : resting) {
+                    if (order.side == side && order.price == level.price) {
+                        CHECK(position != queue->end());
+                        if (position == queue->end()) {
+                            break;
+                        }
+                        CHECK_EQ(position->order_id, order.order_id);
+                        CHECK_EQ(position->quantity, order.quantity);
+                        CHECK_EQ(book.find_order(order.order_id), &*position);
+                        ++position;
+                    }
+                }
+                CHECK(position == queue->end());
+            }
+        }
+    }
+    for (const auto count : counts) {
+        CHECK(count > 0);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -237,5 +450,9 @@ int main() {
     test_rejected_events();
     test_extreme_spreads();
     test_generated_adds_against_reference();
+    test_modify_priority();
+    test_cancel_and_trade();
+    test_rejected_updates();
+    test_mixed_replay_against_reference();
     return test::failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

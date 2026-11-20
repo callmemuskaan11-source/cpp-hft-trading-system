@@ -21,7 +21,13 @@ enum class BookResult {
     InvalidSide,
     InvalidPrice,
     InvalidQuantity,
-    QuantityOverflow
+    QuantityOverflow,
+    Modified,
+    Cancelled,
+    Traded,
+    UnknownOrderId,
+    SideMismatch,
+    PriorityOverflow
 };
 
 struct BookLevel {
@@ -31,13 +37,16 @@ struct BookLevel {
     bool operator==(const BookLevel&) const = default;
 };
 
-// An ADD-only book. Locked and crossed prices are allowed and remain resting.
+// Mirrors exchange events. Locked and crossed prices are allowed and remain resting.
 class LimitOrderBook {
 public:
     LimitOrderBook() = default;
     LimitOrderBook(const LimitOrderBook&) = delete;
     LimitOrderBook& operator=(const LimitOrderBook&) = delete;
 
+    // MODIFY sets remaining quantity. A price change or quantity increase
+    // loses FIFO priority. CANCEL removes the whole order with quantity zero
+    // and ignores price. TRADE applies an execution within the resting limit.
     // Allocation failures propagate with the book unchanged.
     [[nodiscard]] BookResult apply(const MarketEvent& event);
 
@@ -50,10 +59,14 @@ public:
     [[nodiscard]] std::vector<BookLevel> top_bids(std::size_t count) const;
     [[nodiscard]] std::vector<BookLevel> top_asks(std::size_t count) const;
 
-    // Borrowed read-only views. Later ADDs preserve these pointers and existing
-    // list iterators. All views expire when the book is destroyed.
+    // Borrowed views. An order pointer and its iterator survive relocation
+    // (the iterator follows the order to its new queue). Removal invalidates
+    // both. A queue pointer expires when its last order leaves the level.
+    // All views expire when the book is destroyed.
     [[nodiscard]] const Order* find_order(OrderId id) const;
     [[nodiscard]] const std::list<Order>* orders_at(Side side, Price price) const;
+
+    [[nodiscard]] bool is_consistent() const;
 
 private:
     struct PriceLevel {
@@ -70,16 +83,21 @@ private:
     // so the index always refers to nodes owned by this book.
     struct OrderLocation {
         Side side;
-        const PriceLevel* level;
-        std::list<Order>::const_iterator order;
+        PriceLevel* level;
+        std::list<Order>::iterator order;
+        std::uint64_t priority;
     };
 
     template <typename Levels>
     BookResult add_to(Levels& levels, const MarketEvent& event);
 
+    BookResult modify(OrderLocation& location, const MarketEvent& event);
+    void erase_empty_level(Side side, const PriceLevel& level);
+
     std::map<Price, PriceLevel, std::greater<Price>> bids_;
     std::map<Price, PriceLevel, std::less<Price>> asks_;
     std::unordered_map<OrderId, OrderLocation> index_;
+    std::uint64_t last_priority_{};
 };
 
 } // namespace hft::market_data
