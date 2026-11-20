@@ -1,21 +1,35 @@
-
 #pragma once
 
 #include <cstdint>
+#include <limits>
 
 namespace hft {
 
-// Step 1: Define fundamental data types
-using Price = std::int64_t;
-using Quantity = std::uint32_t;
-using OrderId = std::uint64_t;
-using SequenceNumber = std::uint64_t;
-using Timestamp = std::uint64_t;
+using Price = std::int64_t;            // Price in integer ticks.
+using Quantity = std::uint32_t;        // Number of units.
+using OrderId = std::uint64_t;         // Identifier for an order.
+using SequenceNumber = std::uint64_t;  // Position in a market message stream.
+using Timestamp = std::uint64_t;       // Time in nanoseconds.
 
-// Step 2: Define order side
+inline constexpr Price kInvalidPrice = std::numeric_limits<Price>::min();
+inline constexpr OrderId kInvalidOrderId = 0;
+
 enum class Side : std::uint8_t {
     Buy,
     Sell
 };
+
+enum class OrderType : std::uint8_t {
+    Limit,
+    Market
+};
+
+constexpr const char* to_string(Side side) noexcept {
+    switch (side) {
+        case Side::Buy: return "Buy";
+        case Side::Sell: return "Sell";
+    }
+    return "Unknown";
+}
 
 } // namespace hft
