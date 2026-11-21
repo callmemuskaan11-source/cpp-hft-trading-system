@@ -4,10 +4,14 @@
 #include <fstream>
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include "hft/common/market_event.hpp"
 
 namespace hft::market_data {
+
+// Decode one complete LF-terminated CSV message. Invalid input returns nullopt.
+[[nodiscard]] std::optional<MarketEvent> decode_market_message(std::string_view message) noexcept;
 
 // Reads the headerless CSV format documented in event_writer.hpp.
 class ReplayReader {

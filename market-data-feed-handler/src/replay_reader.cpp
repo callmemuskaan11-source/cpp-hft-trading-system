@@ -29,7 +29,7 @@ bool parse_enum(std::string_view field, const Enum (&values)[Size], Enum& value)
     return false;
 }
 
-const char* parse_record(std::string_view record, MarketEvent& event) {
+const char* parse_record(std::string_view record, MarketEvent& event) noexcept {
     std::array<std::string_view, 7> fields;
     for (std::size_t index = 0; index < fields.size() - 1; ++index) {
         const auto comma = record.find(',');
@@ -73,6 +73,18 @@ const char* parse_record(std::string_view record, MarketEvent& event) {
 }
 
 } // namespace
+
+std::optional<MarketEvent> decode_market_message(std::string_view message) noexcept {
+    if (!message.ends_with('\n')) {
+        return std::nullopt;
+    }
+    message.remove_suffix(1);
+    MarketEvent event{};
+    if (parse_record(message, event) != nullptr) {
+        return std::nullopt;
+    }
+    return event;
+}
 
 ReplayReader::ReplayReader(const std::filesystem::path& path)
     : path_(path), input_(path, std::ios::binary) {
