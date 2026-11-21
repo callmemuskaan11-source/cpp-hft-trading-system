@@ -4,6 +4,8 @@ cmake-build-*/
 CMakeFiles/
 CMakeCache.txt
 compile_commands.json
+/build-debug/Testing/Temporary/CTestCostData.txt
+/build-release/Testing/Temporary/CTestCostData.txt
 
 # Compiled files
 *.o
@@ -27,3 +29,6 @@ low-latency-tick-to-trade/results/*
 # Temporary files
 *.log
 *.tmp
+
+# Accidental Git diff listing
+/tore --staged .

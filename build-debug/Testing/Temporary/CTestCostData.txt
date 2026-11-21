@@ -1,5 +1,0 @@
-test_common 4 0.00177037
-test_synthetic_generator 4 0.0382077
-test_event_serialization 4 0.278655
-test_limit_order_book 2 0.080001
----
